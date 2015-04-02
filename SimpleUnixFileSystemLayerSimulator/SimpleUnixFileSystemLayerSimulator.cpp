@@ -701,7 +701,8 @@ public:
 	}
 
 	static int createDirecotory(vector<string> & cmd, int cwdInodeNum){
-		throw std::logic_error("The method or operation is not implemented.");
+		createFile(cmd, cwdInodeNum);
+		
 	}
 
 
