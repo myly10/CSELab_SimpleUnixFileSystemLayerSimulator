@@ -650,6 +650,10 @@ public:
 			cerr<<"Error: \""<<cmd[1]<<"\" is not a directory."<<endl;
 			return FAILURE;
 		}
+		if (cmd[2].size()>BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET){
+			cerr<<"Error: file name too long (>127 bytes)."<<endl;
+			return FAILURE;
+		}
 
 		//find name conflicts
 		for (int i=0; i!=N; ++i){
@@ -665,6 +669,7 @@ public:
 				}
 				if (s==cmd[2]){
 					cerr<<"Error: file with the same name already exists."<<endl;
+					return FAILURE;
 				}
 			}
 		}
@@ -674,6 +679,7 @@ public:
 		for (int i=0; i!=N; ++i){
 			if (wdInode.block_numbers[i]==0){
 				//TODO ask for new block
+				//TODO write bitmap
 			}
 			byte *tb=INODE_TO_BLOCK(i*BLOCK_SIZE, wdInode);
 			for (int j=0; j!=BLOCK_DIRECTORY_ENTRY_NUM; ++j){
@@ -682,10 +688,17 @@ public:
 					for (inodeNumCurrent=0; inodeNumCurrent!=INODE_NUM; ++inodeNumCurrent){
 						if (INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table).type==FS_UNUSEDINODE){
 							inodeAvailable=true;
+							memcpy(tb+j*BLOCK_DIRECTORY_ENTRY_SIZE, cmd[2].c_str(), sizeof(char)*cmd[2].size()+1);
+							tb[j*BLOCK_DIRECTORY_ENTRY_SIZE+BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET]=(unsigned char)inodeNumCurrent;
 							inode_t &inodeCurrent=INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table);
-
+							inodeCurrent.type=FS_FILE;
+							inodeCurrent.size=0;
+							memset(inodeCurrent.block_numbers, 0, sizeof(int)*N);
+							blockAvailable=true;
+							//available inode process finished
 						}
 						//TODO write empty file here
+						//TODO write bitmap
 					}
 				}
 			}
@@ -704,10 +717,6 @@ public:
 		createFile(cmd, cwdInodeNum);
 		
 	}
-
-
-
-
 };
 
 int _tmain(int argc, char* argv[]){
