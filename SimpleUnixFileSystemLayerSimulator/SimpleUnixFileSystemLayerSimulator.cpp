@@ -308,19 +308,22 @@ int WRITE_BLOCK_BY_BLOCK_NUMBER(int b, byte* srcBlock){
 class Commands{
 public:
 	static int execute(vector<string> &cmd, int cwdInodeNum){
-		if (cmd[0]=="ls") return ls(cmd, cwdInodeNum);
+		if (cmd[0]=="ls") return ls_(cmd, cwdInodeNum);
 		if (cmd[0]=="info") return printDiskLayout();
-		if (cmd[0]=="cat") return cat(cmd, cwdInodeNum);
+		if (cmd[0]=="cat") return cat_(cmd, cwdInodeNum);
 		if (cmd[0]=="export") return export_(cmd, cwdInodeNum);
-		if (cmd[0]=="tree") return tree(cmd, cwdInodeNum);
+		if (cmd[0]=="tree") return tree_(cmd, cwdInodeNum);
 		if (cmd[0]=="find") return find_(cmd);
+		if (cmd[0]=="createFile" || cmd[0]=="touch") return createFile(cmd, cwdInodeNum);
+		if (cmd[0]=="insertFile"||cmd[0]=="import") return insertFile(cmd, cwdInodeNum);
+		if (cmd[0]=="createDirecotory" || cmd[0]=="mkdir") return createDirecotory(cmd,cwdInodeNum);
 		else{
 			cerr<<"Error: command \""<<cmd[0]<<"\" was not found."<<endl;
 			return FAILURE;
 		}
 	}
 
-	static int ls(vector<string> &cmd, int cwdInodeNum){
+	static int ls_(vector<string> &cmd, int cwdInodeNum){
 		inode_t &wdInode=cmd.size()>1?
 			INODE_NUMBER_TO_INODE(PATH_TO_INODE_NUMBER(cmd[1].c_str(), cwdInodeNum), inode_table)
 			:INODE_NUMBER_TO_INODE(cwdInodeNum, inode_table);
@@ -354,7 +357,7 @@ public:
 		return 0;
 	}
 
-	static int cat(vector<string> & cmd, int cwdInodeNum){
+	static int cat_(vector<string> & cmd, int cwdInodeNum){
 		if (cmd.size()<2){
 			cerr<<"Error: no file specified."<<endl;
 			return FAILURE;
@@ -420,7 +423,7 @@ public:
 		return 0;
 	}
 
-	static int tree(vector<string> & cmd, int cwdInodeNum){
+	static int tree_(vector<string> & cmd, int cwdInodeNum){
 		int indentFactor=1;
 		int wdInodeNum=cmd.size()>1?PATH_TO_INODE_NUMBER(cmd[1].c_str(), cwdInodeNum):cwdInodeNum;
 		inode_t &wdInode=cmd.size()>1?
@@ -486,14 +489,14 @@ public:
 				}
 				else result+="\n";
 				if (s!="." && s!=".." && INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table).type==FS_DIRECTORY)
-					if (treeRecursive(inodeNumCurrent, indentFactor+1, result)==FAILURE) return FAILURE;
+					if (tree_Recursive(inodeNumCurrent, indentFactor+1, result)==FAILURE) return FAILURE;
 			}
 		}
 		cout<<result<<endl;
 		return 0;
 	}
 
-	static int treeRecursive(int cwdInodeNum, int indentFactor, string &result){
+	static int tree_Recursive(int cwdInodeNum, int indentFactor, string &result){
 		inode_t &wdInode=INODE_NUMBER_TO_INODE(cwdInodeNum, inode_table);
 		if (&wdInode==nullptr){
 			cerr<<"Error: path/file not found"<<endl;
@@ -539,7 +542,7 @@ public:
 				}
 				else result+="\n";
 				if (s!="." && s!=".." && INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table).type==FS_DIRECTORY)
-					if (treeRecursive(inodeNumCurrent, indentFactor+1, result)==FAILURE) return FAILURE;
+					if (tree_Recursive(inodeNumCurrent, indentFactor+1, result)==FAILURE) return FAILURE;
 			}
 		}
 		return 0;
@@ -632,6 +635,78 @@ public:
 		}
 		return !isFound;
 	}
+
+	static int createFile(vector<string> & cmd, int cwdInodeNum){
+		if (cmd.size()<3){
+			cerr<<"Error: missing parameter"<<endl;
+			return FAILURE;
+		}
+		inode_t &wdInode=INODE_NUMBER_TO_INODE(PATH_TO_INODE_NUMBER(cmd[1].c_str(), cwdInodeNum), inode_table);
+		if (&wdInode==nullptr){
+			cerr<<"Error: path/file not found"<<endl;
+			return FAILURE;
+		}
+		if (wdInode.type!=FS_DIRECTORY){
+			cerr<<"Error: \""<<cmd[1]<<"\" is not a directory."<<endl;
+			return FAILURE;
+		}
+
+		//find name conflicts
+		for (int i=0; i!=N; ++i){
+			if (wdInode.block_numbers[i]<=0) continue;
+			byte *tb=INODE_TO_BLOCK(i*BLOCK_SIZE, wdInode);
+			for (int j=0; j!=BLOCK_DIRECTORY_ENTRY_NUM; ++j){
+				int inodeNumCurrent=tb[j*BLOCK_DIRECTORY_ENTRY_SIZE+BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET];
+				if (INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table).type==FS_UNUSEDINODE||tb[j*BLOCK_DIRECTORY_ENTRY_SIZE]=='\0') continue;
+				string s="";
+				for (int p=0; p!=BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET; ++p){
+					if (*((char*)tb+j*BLOCK_DIRECTORY_ENTRY_SIZE+p)=='\0') break;
+					s+=*((char*)tb+j*BLOCK_DIRECTORY_ENTRY_SIZE+p);
+				}
+				if (s==cmd[2]){
+					cerr<<"Error: file with the same name already exists."<<endl;
+				}
+			}
+		}
+
+		//search for available inode and block
+		bool written=false, inodeAvailable=false, blockAvailable=false;
+		for (int i=0; i!=N; ++i){
+			if (wdInode.block_numbers[i]==0){
+				//TODO ask for new block
+			}
+			byte *tb=INODE_TO_BLOCK(i*BLOCK_SIZE, wdInode);
+			for (int j=0; j!=BLOCK_DIRECTORY_ENTRY_NUM; ++j){
+				int inodeNumCurrent=tb[j*BLOCK_DIRECTORY_ENTRY_SIZE+BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET];
+				if (tb[j*BLOCK_DIRECTORY_ENTRY_SIZE]=='\0'){
+					for (inodeNumCurrent=0; inodeNumCurrent!=INODE_NUM; ++inodeNumCurrent){
+						if (INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table).type==FS_UNUSEDINODE){
+							inodeAvailable=true;
+							inode_t &inodeCurrent=INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table);
+
+						}
+						//TODO write empty file here
+					}
+				}
+			}
+			
+		}
+
+		//TODO write bitmap
+		return 0;
+	}
+
+	static int insertFile(vector<string> & cmd, int cwdInodeNum){
+		throw std::logic_error("The method or operation is not implemented.");
+	}
+
+	static int createDirecotory(vector<string> & cmd, int cwdInodeNum){
+		throw std::logic_error("The method or operation is not implemented.");
+	}
+
+
+
+
 };
 
 int _tmain(int argc, char* argv[]){
