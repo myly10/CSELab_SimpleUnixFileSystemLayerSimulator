@@ -700,7 +700,7 @@ public:
 			for (int j=0; j!=BLOCK_DIRECTORY_ENTRY_NUM; ++j){
 				int inodeNumCurrent=tb[j*BLOCK_DIRECTORY_ENTRY_SIZE+BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET];
 				if (tb[j*BLOCK_DIRECTORY_ENTRY_SIZE]=='\0'){
-					for (inodeNumCurrent=0; inodeNumCurrent!=INODE_NUM; ){
+					for (inodeNumCurrent=0; inodeNumCurrent!=INODE_NUM; ++inodeNumCurrent){
 						if (INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table).type==FS_UNUSEDINODE){
 							inodeAvailable=true;
 							memcpy(tb+j*BLOCK_DIRECTORY_ENTRY_SIZE, cmd[2].c_str(), sizeof(char)*cmd[2].size()+1);
@@ -712,7 +712,6 @@ public:
 							blockAvailable=true;
 							return 0;
 						}
-						//TODO write empty file here
 						//TODO write bitmap
 					}
 				}
