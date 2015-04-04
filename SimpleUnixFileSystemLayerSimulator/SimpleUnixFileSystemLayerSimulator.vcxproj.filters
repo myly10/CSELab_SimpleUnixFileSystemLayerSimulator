@@ -19,6 +19,7 @@
   </ItemGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />
+    <Text Include="test\README_2.txt" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h">
@@ -41,5 +42,10 @@
     <ClCompile Include="PathUtility.cpp">
       <Filter>Tool</Filter>
     </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="test\diskblocks.data" />
+    <None Include="test\README.pdf" />
+    <None Include="test\simpledisk.data" />
   </ItemGroup>
 </Project>
