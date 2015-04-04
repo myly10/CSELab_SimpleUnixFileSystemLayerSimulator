@@ -1,2 +1,0 @@
-SimpleUnixFileSystemLayerSimulator.exe info
-pause

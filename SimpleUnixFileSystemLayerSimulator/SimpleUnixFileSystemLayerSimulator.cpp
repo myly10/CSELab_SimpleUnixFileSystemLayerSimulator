@@ -146,15 +146,20 @@ inline int byte2int_pass(byte *&t){
 }
 
 //‘ÿ»Îinode table
-void load_inode_table(){
+void load_disk_structure(){
+	//load bitmap
+	byte *bitmap=loaddiskcontent(BITMAP_FOR_FREE_BLOCK_OFFSET, BITMAP_FOR_FREE_BLOCK_SIZE*BLOCK_SIZE);
+	memcpy(freeblockbitmap, bitmap, BITMAP_FOR_FREE_BLOCK_SIZE*BLOCK_SIZE);
+	delete[] bitmap;
+
+	//load inode table
 	byte *inodeTableRaw=loaddiskcontent(INODE_TABLE_OFFSET*BLOCK_SIZE, INODE_TABLE_SIZE*BLOCK_SIZE);
-	byte *itrp=inodeTableRaw;
 	for (int i=0; i!=INODE_NUM;++i){
 		inode_t &iti=inode_table[i];
-		iti.type=byte2int_pass(itrp);
-		iti.size=byte2int_pass(itrp);
+		iti.type=byte2int_pass(inodeTableRaw);
+		iti.size=byte2int_pass(inodeTableRaw);
 		for (int j=0; j!=N; ++j)
-			iti.block_numbers[j]=byte2int_pass(itrp);
+			iti.block_numbers[j]=byte2int_pass(inodeTableRaw);
 	}
 	delete[] inodeTableRaw;
 }
@@ -321,6 +326,16 @@ public:
 			cerr<<"Error: command \""<<cmd[0]<<"\" was not found."<<endl;
 			return FAILURE;
 		}
+	}
+
+	static int findNextAvailableBlock(int blockNumCurrent){
+		if (blockNumCurrent<FILE_BLOCK_OFFSET && blockNumCurrent>=FILE_BLOCK_OFFSET+FILE_BLOCK_SIZE)
+			return FAILURE;
+		while (blockNumCurrent!=FILE_BLOCK_OFFSET+FILE_BLOCK_SIZE){
+			if ((freeblockbitmap[blockNumCurrent/8]>>(blockNumCurrent%8))&1==0)
+				return blockNumCurrent;
+		}
+		return FAILURE;
 	}
 
 	static int ls_(vector<string> &cmd, int cwdInodeNum){
@@ -678,14 +693,14 @@ public:
 		bool written=false, inodeAvailable=false, blockAvailable=false;
 		for (int i=0; i!=N; ++i){
 			if (wdInode.block_numbers[i]==0){
-				//TODO ask for new block
+				int blockNum=findNextAvailableBlock(FILE_BLOCK_OFFSET);
 				//TODO write bitmap
 			}
 			byte *tb=INODE_TO_BLOCK(i*BLOCK_SIZE, wdInode);
 			for (int j=0; j!=BLOCK_DIRECTORY_ENTRY_NUM; ++j){
 				int inodeNumCurrent=tb[j*BLOCK_DIRECTORY_ENTRY_SIZE+BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET];
 				if (tb[j*BLOCK_DIRECTORY_ENTRY_SIZE]=='\0'){
-					for (inodeNumCurrent=0; inodeNumCurrent!=INODE_NUM; ++inodeNumCurrent){
+					for (inodeNumCurrent=0; inodeNumCurrent!=INODE_NUM; ){
 						if (INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table).type==FS_UNUSEDINODE){
 							inodeAvailable=true;
 							memcpy(tb+j*BLOCK_DIRECTORY_ENTRY_SIZE, cmd[2].c_str(), sizeof(char)*cmd[2].size()+1);
@@ -695,7 +710,7 @@ public:
 							inodeCurrent.size=0;
 							memset(inodeCurrent.block_numbers, 0, sizeof(int)*N);
 							blockAvailable=true;
-							//available inode process finished
+							return 0;
 						}
 						//TODO write empty file here
 						//TODO write bitmap
@@ -721,7 +736,7 @@ public:
 
 int _tmain(int argc, char* argv[]){
 	int cwdInodeNum=0;
-	load_inode_table();
+	load_disk_structure();
 	if (argc==1||(argc>=2&&strcmp(argv[1], "shell"))==0){
 		while (true){
 			cout<<"simple_sh 0.1  / > ";//TODO display CWD
