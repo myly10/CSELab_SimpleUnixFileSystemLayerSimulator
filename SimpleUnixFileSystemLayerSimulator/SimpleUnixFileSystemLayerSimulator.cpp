@@ -138,13 +138,6 @@ int savediskcontent(byte* src, int offset, int size){
 //构建空的diskblocks.data
 int createEmptyBlockFile(int blocknum);
 
-inline int byte2int_pass(byte *&t){
-	int o=0;
-	for (int i=0; i!=sizeof(int); ++i)
-		o|=*(t++)<<(8*i);
-	return o;
-}
-
 //载入inode table
 void load_disk_structure(){
 	//load bitmap
@@ -154,13 +147,7 @@ void load_disk_structure(){
 
 	//load inode table
 	byte *inodeTableRaw=loaddiskcontent(INODE_TABLE_OFFSET*BLOCK_SIZE, INODE_TABLE_SIZE*BLOCK_SIZE);
-	for (int i=0; i!=INODE_NUM;++i){
-		inode_t &iti=inode_table[i];
-		iti.type=byte2int_pass(inodeTableRaw);
-		iti.size=byte2int_pass(inodeTableRaw);
-		for (int j=0; j!=N; ++j)
-			iti.block_numbers[j]=byte2int_pass(inodeTableRaw);
-	}
+	memcpy(inode_table, inodeTableRaw, INODE_TABLE_SIZE_REAL);
 	delete[] inodeTableRaw;
 }
 
@@ -328,12 +315,15 @@ public:
 		}
 	}
 
-	static int findNextAvailableBlock(int blockNumCurrent){
+	static int findAndMarkNextAvailableBlock(int blockNumCurrent){
 		if (blockNumCurrent<FILE_BLOCK_OFFSET && blockNumCurrent>=FILE_BLOCK_OFFSET+FILE_BLOCK_SIZE)
 			return FAILURE;
 		while (blockNumCurrent!=FILE_BLOCK_OFFSET+FILE_BLOCK_SIZE){
-			if ((freeblockbitmap[blockNumCurrent/8]>>(blockNumCurrent%8))&1==0)
+			if ((freeblockbitmap[blockNumCurrent/8]>>(blockNumCurrent%8))&1==0){
+				freeblockbitmap[blockNumCurrent/8]!=1<<(blockNumCurrent%8);
 				return blockNumCurrent;
+			}
+			++blockNumCurrent;
 		}
 		return FAILURE;
 	}
@@ -368,6 +358,7 @@ public:
 				}
 				cout<<endl;
 			}
+			delete[] tb;
 		}
 		return 0;
 	}
@@ -504,8 +495,12 @@ public:
 				}
 				else result+="\n";
 				if (s!="." && s!=".." && INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table).type==FS_DIRECTORY)
-					if (tree_Recursive(inodeNumCurrent, indentFactor+1, result)==FAILURE) return FAILURE;
+					if (tree_Recursive(inodeNumCurrent, indentFactor+1, result)==FAILURE){
+						delete[] tb;
+						return FAILURE;
+					}
 			}
+			delete[] tb;
 		}
 		cout<<result<<endl;
 		return 0;
@@ -557,8 +552,12 @@ public:
 				}
 				else result+="\n";
 				if (s!="." && s!=".." && INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table).type==FS_DIRECTORY)
-					if (tree_Recursive(inodeNumCurrent, indentFactor+1, result)==FAILURE) return FAILURE;
+					if (tree_Recursive(inodeNumCurrent, indentFactor+1, result)==FAILURE){
+						delete[] tb;
+						return FAILURE;
+					}
 			}
+			delete[] tb;
 		}
 		return 0;
 	}
@@ -608,10 +607,11 @@ public:
 				}
 				if (s!="." && s!=".." && INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table).type==FS_DIRECTORY)
 					switch (find_Recursive(cmd[2], inodeNumCurrent, path+"/"+s)){
-					case FAILURE: return FAILURE;
+					case FAILURE: delete[] tb; return FAILURE;
 					case 0: isFound=true;
 				}
 			}
+			delete[] tb;
 		}
 		if (!isFound){
 			cout<<"Error: nothing found."<<endl;
@@ -643,10 +643,11 @@ public:
 				}
 				if (s!="." && s!=".." && INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table).type==FS_DIRECTORY)
 					switch (find_Recursive(target, inodeNumCurrent, path+"/"+s)){
-					case FAILURE: return FAILURE;
+					case FAILURE: delete[] tb; return FAILURE;
 					case 0: isFound=true;
 				}
 			}
+			delete[] tb;
 		}
 		return !isFound;
 	}
@@ -687,14 +688,20 @@ public:
 					return FAILURE;
 				}
 			}
+			delete[] tb;
 		}
 
 		//search for available inode and block
-		bool written=false, inodeAvailable=false, blockAvailable=false;
+		bool inodeAvailable=false;
 		for (int i=0; i!=N; ++i){
 			if (wdInode.block_numbers[i]==0){
-				int blockNum=findNextAvailableBlock(FILE_BLOCK_OFFSET);
-				//TODO write bitmap
+				int blockNum=findAndMarkNextAvailableBlock(FILE_BLOCK_OFFSET);
+				if (blockNum==-1){
+					cerr<<"Error: no block available"<<endl;
+					return FAILURE;
+				}
+				savediskcontent(freeblockbitmap, BITMAP_FOR_FREE_BLOCK_OFFSET*BLOCK_SIZE, BITMAP_FOR_FREE_BLOCK_SIZE*BLOCK_SIZE);
+				wdInode.block_numbers[i]=blockNum;
 			}
 			byte *tb=INODE_TO_BLOCK(i*BLOCK_SIZE, wdInode);
 			for (int j=0; j!=BLOCK_DIRECTORY_ENTRY_NUM; ++j){
@@ -709,17 +716,20 @@ public:
 							inodeCurrent.type=FS_FILE;
 							inodeCurrent.size=0;
 							memset(inodeCurrent.block_numbers, 0, sizeof(int)*N);
-							blockAvailable=true;
+							savediskcontent((byte*)inode_table, INODE_TABLE_OFFSET*BLOCK_SIZE, INODE_TABLE_SIZE_REAL);
+							savediskcontent()
+							delete[] tb;
 							return 0;
 						}
-						//TODO write bitmap
 					}
 				}
 			}
-			
+			delete[] tb;;
 		}
-
-		//TODO write bitmap
+		if (!inodeAvailable){
+			cerr<<"Error: cannot write inode"<<endl;
+			return FAILURE;
+		}
 		return 0;
 	}
 
@@ -729,7 +739,11 @@ public:
 
 	static int createDirecotory(vector<string> & cmd, int cwdInodeNum){
 		createFile(cmd, cwdInodeNum);
-		
+		string target=cmd[1];
+		if (target[target.size()-1]!='/') target.push_back('/');
+		target+=cmd[2];
+		inode_t &inode=INODE_NUMBER_TO_INODE(PATH_TO_INODE_NUMBER(target.c_str(),cwdInodeNum),inode_table);
+		return FAILURE;
 	}
 };
 
