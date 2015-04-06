@@ -77,7 +77,6 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />
-    <Text Include="test\README_2.txt" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="PathUtility.h" />
@@ -88,11 +87,6 @@
     <ClCompile Include="PathUtility.cpp" />
     <ClCompile Include="SimpleUnixFileSystemLayerSimulator.cpp" />
     <ClCompile Include="stdafx.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="test\diskblocks.data" />
-    <None Include="test\README.pdf" />
-    <None Include="test\simpledisk.data" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

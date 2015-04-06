@@ -306,7 +306,7 @@ public:
 		if (cmd[0]=="export") return export_(cmd, cwdInodeNum);
 		if (cmd[0]=="tree") return tree_(cmd, cwdInodeNum);
 		if (cmd[0]=="find") return find_(cmd);
-		if (cmd[0]=="createFile" || cmd[0]=="touch") return createFile(cmd, cwdInodeNum);
+		if (cmd[0]=="createFile" || cmd[0]=="touch") return createEmptyFile(cmd, cwdInodeNum);
 		if (cmd[0]=="insertFile"||cmd[0]=="import") return insertFile(cmd, cwdInodeNum);
 		if (cmd[0]=="createDirecotory" || cmd[0]=="mkdir") return createDirecotory(cmd,cwdInodeNum);
 		else{
@@ -319,13 +319,21 @@ public:
 		if (blockNumCurrent<FILE_BLOCK_OFFSET && blockNumCurrent>=FILE_BLOCK_OFFSET+FILE_BLOCK_SIZE)
 			return FAILURE;
 		while (blockNumCurrent!=FILE_BLOCK_OFFSET+FILE_BLOCK_SIZE){
-			if ((freeblockbitmap[blockNumCurrent/8]>>(blockNumCurrent%8))&1==0){
+			if (((freeblockbitmap[blockNumCurrent/8]>>(blockNumCurrent%8))&1)==0){
 				freeblockbitmap[blockNumCurrent/8]|=1<<(blockNumCurrent%8);
 				return blockNumCurrent;
 			}
 			++blockNumCurrent;
 		}
 		return FAILURE;
+	}
+
+	static int unMarkBlockBitmap(int blockNumCurrent){
+		if (blockNumCurrent<FILE_BLOCK_OFFSET && blockNumCurrent>=FILE_BLOCK_OFFSET+FILE_BLOCK_SIZE)
+			return FAILURE;
+		if ((freeblockbitmap[blockNumCurrent/8]>>(blockNumCurrent%8))&1==0) return FAILURE;
+		freeblockbitmap[blockNumCurrent/8]&=~(1<<(blockNumCurrent%8));
+		return 0;
 	}
 
 	static int ls_(vector<string> &cmd, int cwdInodeNum){
@@ -652,7 +660,7 @@ public:
 		return !isFound;
 	}
 
-	static int createFile(vector<string> & cmd, int cwdInodeNum){
+	static int createEmptyFile(vector<string> & cmd, int cwdInodeNum){
 		if (cmd.size()<3){
 			cerr<<"Error: missing parameter"<<endl;
 			return FAILURE;
@@ -700,8 +708,9 @@ public:
 					cerr<<"Error: no block available"<<endl;
 					return FAILURE;
 				}
-				savediskcontent(freeblockbitmap, BITMAP_FOR_FREE_BLOCK_OFFSET*BLOCK_SIZE, BITMAP_FOR_FREE_BLOCK_SIZE*BLOCK_SIZE);
 				wdInode.block_numbers[i]=blockNum;
+				wdInode.size+=BLOCK_SIZE;
+				savediskcontent(freeblockbitmap, BITMAP_FOR_FREE_BLOCK_OFFSET*BLOCK_SIZE, BITMAP_FOR_FREE_BLOCK_SIZE*BLOCK_SIZE);
 			}
 			byte *tb=INODE_TO_BLOCK(i*BLOCK_SIZE, wdInode);
 			for (int j=0; j!=BLOCK_DIRECTORY_ENTRY_NUM; ++j){
@@ -738,12 +747,35 @@ public:
 	}
 
 	static int createDirecotory(vector<string> & cmd, int cwdInodeNum){
-		createFile(cmd, cwdInodeNum);
+		int blockNum=findAndMarkNextAvailableBlock(FILE_BLOCK_OFFSET);
+		if (blockNum==FAILURE){
+			cerr<<"Error: no available block"<<endl;
+			return FAILURE;
+		}
+		if (createEmptyFile(cmd, cwdInodeNum)==FAILURE){
+			unMarkBlockBitmap(blockNum);
+			return FAILURE;
+		}
 		string target=cmd[1];
+		int pwdInodeNum=PATH_TO_INODE_NUMBER(target.c_str(), cwdInodeNum);
 		if (target[target.size()-1]!='/') target.push_back('/');
 		target+=cmd[2];
-		inode_t &inode=INODE_NUMBER_TO_INODE(PATH_TO_INODE_NUMBER(target.c_str(),cwdInodeNum),inode_table);
-		return FAILURE;
+		int wdInodeNum=PATH_TO_INODE_NUMBER(target.c_str(), cwdInodeNum);
+		inode_t &inode=INODE_NUMBER_TO_INODE(wdInodeNum,inode_table);
+		inode.type=FS_DIRECTORY;
+		inode.size=BLOCK_SIZE;
+		inode.block_numbers[0]=blockNum;
+		savediskcontent((byte*)inode_table, INODE_TABLE_OFFSET*BLOCK_SIZE, INODE_TABLE_SIZE_REAL);
+
+		//generate an empty dir
+		byte tb[BLOCK_SIZE]={0};
+		tb[0]='.';
+		tb[BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET]=wdInodeNum;
+		tb[BLOCK_DIRECTORY_ENTRY_SIZE]=tb[BLOCK_DIRECTORY_ENTRY_SIZE+1]='.';
+		tb[BLOCK_DIRECTORY_ENTRY_SIZE+BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET]=pwdInodeNum;
+		savediskcontent(tb, blockNum*BLOCK_SIZE, BLOCK_SIZE);
+
+		return 0;
 	}
 };
 
