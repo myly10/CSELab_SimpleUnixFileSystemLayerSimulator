@@ -138,15 +138,15 @@ int savediskcontent(byte* src, int offset, int size){
 //构建空的diskblocks.data
 int createEmptyBlockFile(int blocknum);
 
-//载入inode table
+//载入bitmap and inode table
 void load_disk_structure(){
 	//load bitmap
-	byte *bitmap=loaddiskcontent(BITMAP_FOR_FREE_BLOCK_OFFSET, BITMAP_FOR_FREE_BLOCK_SIZE*BLOCK_SIZE);
+	byte *bitmap=loaddiskcontent(BITMAP_FOR_FREE_BLOCK_OFFSET*BLOCK_SIZE, BITMAP_FOR_FREE_BLOCK_SIZE*BLOCK_SIZE);
 	memcpy(freeblockbitmap, bitmap, BITMAP_FOR_FREE_BLOCK_SIZE*BLOCK_SIZE);
 	delete[] bitmap;
 
 	//load inode table
-	byte *inodeTableRaw=loaddiskcontent(INODE_TABLE_OFFSET*BLOCK_SIZE, INODE_TABLE_SIZE*BLOCK_SIZE);
+	byte *inodeTableRaw=loaddiskcontent(INODE_TABLE_OFFSET*BLOCK_SIZE, INODE_TABLE_SIZE_REAL);
 	memcpy(inode_table, inodeTableRaw, INODE_TABLE_SIZE_REAL);
 	delete[] inodeTableRaw;
 }
@@ -320,7 +320,7 @@ public:
 			return FAILURE;
 		while (blockNumCurrent!=FILE_BLOCK_OFFSET+FILE_BLOCK_SIZE){
 			if ((freeblockbitmap[blockNumCurrent/8]>>(blockNumCurrent%8))&1==0){
-				freeblockbitmap[blockNumCurrent/8]!=1<<(blockNumCurrent%8);
+				freeblockbitmap[blockNumCurrent/8]|=1<<(blockNumCurrent%8);
 				return blockNumCurrent;
 			}
 			++blockNumCurrent;
@@ -717,7 +717,7 @@ public:
 							inodeCurrent.size=0;
 							memset(inodeCurrent.block_numbers, 0, sizeof(int)*N);
 							savediskcontent((byte*)inode_table, INODE_TABLE_OFFSET*BLOCK_SIZE, INODE_TABLE_SIZE_REAL);
-							savediskcontent()
+							savediskcontent(tb, wdInode.block_numbers[i]*BLOCK_SIZE, BLOCK_SIZE);
 							delete[] tb;
 							return 0;
 						}
