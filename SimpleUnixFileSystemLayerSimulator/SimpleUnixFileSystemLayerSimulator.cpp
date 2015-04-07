@@ -743,10 +743,19 @@ public:
 	}
 
 	static int insertFile(vector<string> & cmd, int cwdInodeNum){
+		if (cmd.size()<3){
+			cerr<<"Error: missing parameter"<<endl;
+			return FAILURE;
+		}
+
 		TCHAR *szPath;
 		std::ifstream srcFile;
 		PathUtility::ConstructFullFilePath(&szPath, cmd[2].c_str());
 		srcFile.open(szPath, ios::binary);
+		if (!srcFile.is_open()){
+			cerr<<"Error: cannot open file"<<endl;
+			return FAILURE;
+		}
 		if (!srcFile){
 			cerr<<"Error: cannot open source file"<<endl;
 			return FAILURE;
@@ -785,10 +794,14 @@ public:
 		savediskcontent((byte*)inode_table, INODE_TABLE_OFFSET*BLOCK_SIZE, INODE_TABLE_SIZE_REAL);
 		
 		srcFile.seekg(0, srcFile.beg);
+		byte tb[BLOCK_SIZE];
 		for (int i=0; i!=blocks.size(); ++i){
-			//TODO read file into blocks here
+			memset(tb, 0, BLOCK_SIZE*sizeof(byte));
+			srcFile.read((char*)tb, (fileSize-i)<BLOCK_SIZE?(fileSize-i):BLOCK_SIZE);
+			WRITE_BLOCK_BY_BLOCK_NUMBER(inode.block_numbers[i], tb);
 		}
 		srcFile.close();
+		return 0;
 	}
 
 	static int createDirecotory(vector<string> & cmd, int cwdInodeNum){
