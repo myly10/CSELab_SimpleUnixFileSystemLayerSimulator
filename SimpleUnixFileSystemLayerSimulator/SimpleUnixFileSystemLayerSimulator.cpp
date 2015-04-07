@@ -704,7 +704,7 @@ public:
 		for (int i=0; i!=N; ++i){
 			if (wdInode.block_numbers[i]==0){
 				int blockNum=findAndMarkNextAvailableBlock(FILE_BLOCK_OFFSET);
-				if (blockNum==-1){
+				if (blockNum==FAILURE){
 					cerr<<"Error: no block available"<<endl;
 					return FAILURE;
 				}
@@ -743,7 +743,52 @@ public:
 	}
 
 	static int insertFile(vector<string> & cmd, int cwdInodeNum){
-		throw std::logic_error("The method or operation is not implemented.");
+		TCHAR *szPath;
+		std::ifstream srcFile;
+		PathUtility::ConstructFullFilePath(&szPath, cmd[2].c_str());
+		srcFile.open(szPath, ios::binary);
+		if (!srcFile){
+			cerr<<"Error: cannot open source file"<<endl;
+			return FAILURE;
+		}
+		srcFile.seekg(0, srcFile.end);
+		int fileSize=srcFile.tellg();
+		if (fileSize>N*BLOCK_SIZE){
+			cerr<<"Error: file too big"<<endl;
+			return FAILURE;
+		}
+
+		//allocate blocks
+		vector<int> blocks;
+		for (int i=0; i<fileSize; i+=BLOCK_SIZE){
+			int t=findAndMarkNextAvailableBlock(FILE_BLOCK_OFFSET);
+			if (t==FAILURE){
+				cerr<<"Error: no enough blocks available"<<endl;
+				return FAILURE;
+			}
+			blocks.push_back(t);
+		}
+		if (FAILURE==createEmptyFile(cmd, cwdInodeNum)){
+			for (int i=0; i!=blocks.size(); ++i)
+				unMarkBlockBitmap(blocks[i]);
+			return FAILURE;
+		}
+
+		string target=cmd[1];
+		if (target[target.size()-1]!='/') target.push_back('/');
+		target+=cmd[2];
+		int wdInodeNum=PATH_TO_INODE_NUMBER(target.c_str(), cwdInodeNum);
+		inode_t &inode=INODE_NUMBER_TO_INODE(wdInodeNum, inode_table);
+		inode.size=fileSize;
+		for (int i=0; i!=blocks.size(); ++i)
+			inode.block_numbers[i]=blocks[i];
+		savediskcontent((byte*)inode_table, INODE_TABLE_OFFSET*BLOCK_SIZE, INODE_TABLE_SIZE_REAL);
+		
+		srcFile.seekg(0, srcFile.beg);
+		for (int i=0; i!=blocks.size(); ++i){
+			//TODO read file into blocks here
+		}
+		srcFile.close();
 	}
 
 	static int createDirecotory(vector<string> & cmd, int cwdInodeNum){
