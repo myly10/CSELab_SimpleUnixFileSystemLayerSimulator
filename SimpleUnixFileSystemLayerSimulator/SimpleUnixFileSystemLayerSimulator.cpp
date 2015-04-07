@@ -782,6 +782,7 @@ public:
 				unMarkBlockBitmap(blocks[i]);
 			return FAILURE;
 		}
+		savediskcontent(freeblockbitmap, BITMAP_FOR_FREE_BLOCK_OFFSET*BLOCK_SIZE, BITMAP_FOR_FREE_BLOCK_SIZE*BLOCK_SIZE);
 
 		string target=cmd[1];
 		if (target[target.size()-1]!='/') target.push_back('/');
