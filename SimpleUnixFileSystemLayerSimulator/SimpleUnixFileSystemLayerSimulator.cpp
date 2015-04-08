@@ -772,6 +772,8 @@ public:
 		for (int i=0; i<fileSize; i+=BLOCK_SIZE){
 			int t=findAndMarkNextAvailableBlock(FILE_BLOCK_OFFSET);
 			if (t==FAILURE){
+				for (--i; i!=-1; --i)
+					unMarkBlockBitmap(blocks[i]);
 				cerr<<"Error: no enough blocks available"<<endl;
 				return FAILURE;
 			}
