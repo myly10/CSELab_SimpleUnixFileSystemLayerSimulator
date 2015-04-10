@@ -254,7 +254,7 @@ byte * INODE_TO_BLOCK(int offset, inode_t &i){
 }
 
 //block
-//读取磁盘中block number为b的block中的数据，结果将被写入到将block所指内存空间中，大小为一个block_size
+//读取磁盘中block number为b的block中的数据 and return it，大小为一个block_size
 //调用前请使用new或malloc申请足够的空间用于存放结果
 byte *BLOCK_NUMBER_TO_BLOCK(int b){
 	byte* block=new byte[BLOCK_SIZE];
