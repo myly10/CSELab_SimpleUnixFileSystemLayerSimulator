@@ -309,6 +309,7 @@ public:
 		if (cmd[0]=="createFile" || cmd[0]=="touch") return createEmptyFile(cmd, cwdInodeNum);
 		if (cmd[0]=="insertFile"||cmd[0]=="import") return insertFile(cmd, cwdInodeNum);
 		if (cmd[0]=="createDirecotory" || cmd[0]=="mkdir") return createDirecotory(cmd,cwdInodeNum);
+		if (cmd[0]=="fsck") return fsck_();
 		else{
 			cerr<<"Error: command \""<<cmd[0]<<"\" was not found."<<endl;
 			return FAILURE;
@@ -836,6 +837,31 @@ public:
 		tb[BLOCK_DIRECTORY_ENTRY_SIZE+BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET]=pwdInodeNum;
 		savediskcontent(tb, blockNum*BLOCK_SIZE, BLOCK_SIZE);
 
+		return 0;
+	}
+
+	static int fsck_() {
+		byte bitmap[BITMAP_FOR_FREE_BLOCK_SIZE*BLOCK_SIZE]={0};
+		for (int i=0; i!=INODE_NUM; ++i) {
+			inode_t &it=inode_table[i];
+			if (it.type!=FS_UNUSEDINODE) {
+				for (int j=0; j*BLOCK_SIZE<it.size; ++j) {
+					int blockNum=it.block_numbers[j];
+					if (((bitmap[blockNum/8]>>(blockNum%8))&1)==1) {
+						cerr<<"ERROR: block bitmap conflict at inode number "<<i<<" and block number "<<blockNum<<endl;
+						return FAILURE;
+					}
+					bitmap[blockNum/8]|=1<<(blockNum%8);
+				}
+			}
+		}
+		if (memcmp(bitmap, freeblockbitmap, BITMAP_FOR_FREE_BLOCK_SIZE*BLOCK_SIZE)!=0)
+			for (int i=0; i!=BLOCK_NUM; ++i)
+				if (((bitmap[i/8]>>(i%8))&1)!=((bitmap[i/8]>>(i%8))&1)) {
+					cerr<<"ERROR: block bitmap mismarked, block number "<<i<<endl;
+					return FAILURE;
+				}
+		cout<<"fsck: check finished with no error found"<<endl;
 		return 0;
 	}
 };
