@@ -138,7 +138,7 @@ int savediskcontent(byte* src, int offset, int size){
 //构建空的diskblocks.data
 int createEmptyBlockFile(int blocknum);
 
-//载入bitmap and inode table
+//load bitmap and inode table
 void load_disk_structure(){
 	//load bitmap
 	byte *bitmap=loaddiskcontent(BITMAP_FOR_FREE_BLOCK_OFFSET*BLOCK_SIZE, BITMAP_FOR_FREE_BLOCK_SIZE*BLOCK_SIZE);
@@ -189,15 +189,15 @@ int LINK(){
 
 //path name layer
 int PATH_TO_INODE_NUMBER(const char* path, int dir){
-	if (strcmp(path, "/")==0) return 0;
+	if (strcmp(path, "/")==0) return 0; //if only root dir, return root inode number
 	else{
 		string s(path);
 		int currentPos=0, nextPos;
-		if (s.find('/')==0){
+		if (s.find('/')==0) { //split dir names with '/'
 			dir=0;
 			currentPos=1;
 		}
-		while (currentPos<s.size()){
+		while (currentPos<s.size()){ //level by level go into subdir
 			nextPos=s.find('/', currentPos+1);
 			if (nextPos==s.npos) nextPos=s.size();
 			dir=LOOKUP(s.substr(currentPos, nextPos-currentPos).c_str(), dir);
@@ -213,18 +213,17 @@ int LOOKUP(const char* target_name, int dir_inode_num){
 	inode_t &i=INODE_NUMBER_TO_INODE(dir_inode_num, inode_table);
 	if (i.type!=FS_DIRECTORY) return FAILURE;
 	byte* b;
-	int rt=FAILURE;
 	for (int offset=0; offset<i.size; offset+=BLOCK_SIZE){
-		b=INODE_NUMBER_TO_BLOCK(offset, dir_inode_num);
-		for (int be=0; be!=BLOCK_DIRECTORY_ENTRY_NUM; ++be)
+		b=INODE_NUMBER_TO_BLOCK(offset, dir_inode_num); //read dir block from offset
+		for (int be=0; be!=BLOCK_DIRECTORY_ENTRY_NUM; ++be) // compare each filename with target_name
 			if (strncmp(target_name, ((char*)b)+be*BLOCK_DIRECTORY_ENTRY_SIZE, BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET)==0){
-				rt=b[BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET+be*BLOCK_DIRECTORY_ENTRY_SIZE];
+				int blockNum=b[BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET+be*BLOCK_DIRECTORY_ENTRY_SIZE]; //if found, return block number
 				delete[] b;
-				return rt;
+				return blockNum;
 			}
 		delete[] b;
 	}
-	return rt;
+	return FAILURE;
 }
 
 int NAME_TO_INODE_NUMBER(const char* filename, int dir_inode_num){
@@ -299,6 +298,7 @@ int WRITE_BLOCK_BY_BLOCK_NUMBER(int b, byte* srcBlock){
 
 class Commands{
 public:
+	//user command parser
 	static int execute(vector<string> &cmd, int cwdInodeNum){
 		if (cmd[0]=="ls") return ls_(cmd, cwdInodeNum);
 		if (cmd[0]=="info") return printDiskLayout();
@@ -316,11 +316,12 @@ public:
 		}
 	}
 
+	//find an available block and mark it as used in bitmap
 	static int findAndMarkNextAvailableBlock(int blockNumCurrent){
 		if (blockNumCurrent<FILE_BLOCK_OFFSET && blockNumCurrent>=FILE_BLOCK_OFFSET+FILE_BLOCK_SIZE)
 			return FAILURE;
 		while (blockNumCurrent!=FILE_BLOCK_OFFSET+FILE_BLOCK_SIZE){
-			if (((freeblockbitmap[blockNumCurrent/8]>>(blockNumCurrent%8))&1)==0){
+			if (((freeblockbitmap[blockNumCurrent/8]>>(blockNumCurrent%8))&1)==0){ //determine whether blockNumCurrent is used
 				freeblockbitmap[blockNumCurrent/8]|=1<<(blockNumCurrent%8);
 				return blockNumCurrent;
 			}
@@ -328,7 +329,8 @@ public:
 		}
 		return FAILURE;
 	}
-
+	
+	//unmark mismarked block in bitmap
 	static int unMarkBlockBitmap(int blockNumCurrent){
 		if (blockNumCurrent<FILE_BLOCK_OFFSET && blockNumCurrent>=FILE_BLOCK_OFFSET+FILE_BLOCK_SIZE)
 			return FAILURE;
@@ -337,7 +339,9 @@ public:
 		return 0;
 	}
 
+	//command ls
 	static int ls_(vector<string> &cmd, int cwdInodeNum){
+	//error checking start
 		inode_t &wdInode=cmd.size()>1?
 			INODE_NUMBER_TO_INODE(PATH_TO_INODE_NUMBER(cmd[1].c_str(), cwdInodeNum), inode_table)
 			:INODE_NUMBER_TO_INODE(cwdInodeNum, inode_table);
@@ -349,13 +353,16 @@ public:
 			cerr<<"Error: not a directory"<<endl;
 			return FAILURE;
 		}
+	//error checking finished
+
 		for (int i=0; i!=N; ++i){
 			if (wdInode.block_numbers[i]<=0) continue;
-			byte *tb=INODE_TO_BLOCK(i*BLOCK_SIZE, wdInode);
-			for (int j=0; j!=BLOCK_DIRECTORY_ENTRY_NUM; ++j){
+			byte *tb=INODE_TO_BLOCK(i*BLOCK_SIZE, wdInode); //read directory content
+			for (int j=0; j!=BLOCK_DIRECTORY_ENTRY_NUM; ++j){ //enter each subentry
 				int inodeNumCurrent=tb[j*BLOCK_DIRECTORY_ENTRY_SIZE+BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET];
+				//if file name == '\0', regard as no file here
 				if (INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table).type==FS_UNUSEDINODE||tb[j*BLOCK_DIRECTORY_ENTRY_SIZE]=='\0') continue;
-				switch (INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table).type){
+				switch (INODE_NUMBER_TO_INODE(inodeNumCurrent, inode_table).type){ //display file name and info
 				case FS_DIRECTORY: cout<<"d-- "; break;
 				case FS_FILE: cout<<"-f- "; break;
 				case FS_UNUSEDINODE: cout<<"--u "; break;
@@ -372,7 +379,9 @@ public:
 		return 0;
 	}
 
-	static int cat_(vector<string> & cmd, int cwdInodeNum){
+	//command cat
+	static int cat_(vector<string> & cmd, int cwdInodeNum) {
+		//error checking start
 		if (cmd.size()<2){
 			cerr<<"Error: no file specified."<<endl;
 			return FAILURE;
@@ -386,19 +395,21 @@ public:
 			cerr<<"Error: is a directory."<<endl;
 			return FAILURE;
 		}
+		//error checking finished
 		int offset=0;
 		char *data=new char[inode.size];
 		while (offset<inode.size){
-			byte *tb=INODE_TO_BLOCK(offset, inode);
+			byte *tb=INODE_TO_BLOCK(offset, inode); //read blocks
 			memcpy(data+offset, tb, min(BLOCK_SIZE, inode.size-offset));
 			offset+=BLOCK_SIZE;
 			delete[] tb;
 		}
-		cout<<string(data,inode.size)<<endl;
+		cout<<string(data,inode.size)<<endl; //and print them out
 		delete[] data;
 		return 0;
 	}
 
+	//command export
 	static int export_(vector<string> & cmd, int cwdInodeNum){
 		if (cmd.size()<2){
 			cerr<<"Error: no file specified."<<endl;
@@ -413,6 +424,9 @@ public:
 			cerr<<"Error: is a directory."<<endl;
 			return FAILURE;
 		}
+		
+		//generally same process as cat, then write to file rather than cout
+
 		int offset=0;
 		char *data=new char[inode.size];
 		while (offset<inode.size){
@@ -438,6 +452,7 @@ public:
 		return 0;
 	}
 
+	//command tree
 	static int tree_(vector<string> & cmd, int cwdInodeNum){
 		int indentFactor=1;
 		int wdInodeNum=cmd.size()>1?PATH_TO_INODE_NUMBER(cmd[1].c_str(), cwdInodeNum):cwdInodeNum;
@@ -469,6 +484,7 @@ public:
 		oss.str("");
 		oss.clear();
 
+		//recursively ls
 		for (int i=0; i!=N; ++i){
 			if (wdInode.block_numbers[i]<=0) continue;
 			byte *tb=INODE_TO_BLOCK(i*BLOCK_SIZE, wdInode);
@@ -515,6 +531,7 @@ public:
 		return 0;
 	}
 
+	//recursive processing part of tree command
 	static int tree_Recursive(int cwdInodeNum, int indentFactor, string &result){
 		inode_t &wdInode=INODE_NUMBER_TO_INODE(cwdInodeNum, inode_table);
 		if (&wdInode==nullptr){
@@ -571,6 +588,7 @@ public:
 		return 0;
 	}
 
+	//command find
 	static int find_(vector<string> & cmd){
 		if (cmd.size()<3){
 			cerr<<"Error: missing parameter."<<endl;
@@ -597,6 +615,8 @@ public:
 		bool isFound=false;
 		string path=cmd[1];
 		if (path=="/") path="";
+		
+		//recursively ls and look for target
 		for (int i=0; i!=N; ++i){
 			if (wdInode.block_numbers[i]<=0) continue;
 			byte *tb=INODE_TO_BLOCK(i*BLOCK_SIZE, wdInode);
@@ -629,6 +649,7 @@ public:
 		else return 0;
 	}
 
+	//recursive processing part of find command
 	static int find_Recursive(const string &target, int cwdInodeNum, const string &path){
 		//start generating files in current dir
 		bool isFound=false;
@@ -661,6 +682,7 @@ public:
 		return !isFound;
 	}
 
+	//command createEmptyFile or touch
 	static int createEmptyFile(vector<string> & cmd, int cwdInodeNum){
 		if (cmd.size()<3){
 			cerr<<"Error: missing parameter"<<endl;
@@ -703,7 +725,7 @@ public:
 		//search for available inode and block
 		bool inodeAvailable=false;
 		for (int i=0; i!=N; ++i){
-			if (wdInode.block_numbers[i]==0){
+			if (wdInode.block_numbers[i]==0){ //this procedure can make sure the process later will have available block
 				int blockNum=findAndMarkNextAvailableBlock(FILE_BLOCK_OFFSET);
 				if (blockNum==FAILURE){
 					cerr<<"Error: no block available"<<endl;
@@ -726,6 +748,8 @@ public:
 							inodeCurrent.type=FS_FILE;
 							inodeCurrent.size=0;
 							memset(inodeCurrent.block_numbers, 0, sizeof(int)*N);
+
+							//write file data
 							savediskcontent((byte*)inode_table, INODE_TABLE_OFFSET*BLOCK_SIZE, INODE_TABLE_SIZE_REAL);
 							savediskcontent(tb, wdInode.block_numbers[i]*BLOCK_SIZE, BLOCK_SIZE);
 							delete[] tb;
@@ -743,6 +767,7 @@ public:
 		return 0;
 	}
 
+	//command insertFile or import
 	static int insertFile(vector<string> & cmd, int cwdInodeNum){
 		if (cmd.size()<3){
 			cerr<<"Error: missing parameter"<<endl;
@@ -771,10 +796,10 @@ public:
 		//allocate blocks
 		vector<int> blocks;
 		for (int i=0; i<fileSize; i+=BLOCK_SIZE){
-			int t=findAndMarkNextAvailableBlock(FILE_BLOCK_OFFSET);
+			int t=findAndMarkNextAvailableBlock(FILE_BLOCK_OFFSET); //allocate blocks here...
 			if (t==FAILURE){
 				for (--i; i!=-1; --i)
-					unMarkBlockBitmap(blocks[i]);
+					unMarkBlockBitmap(blocks[i]); //...and if fail, free all pre-allocated blocks
 				cerr<<"Error: no enough blocks available"<<endl;
 				return FAILURE;
 			}
@@ -782,11 +807,14 @@ public:
 		}
 		if (FAILURE==createEmptyFile(cmd, cwdInodeNum)){
 			for (int i=0; i!=blocks.size(); ++i)
-				unMarkBlockBitmap(blocks[i]);
+				unMarkBlockBitmap(blocks[i]); //if cannot create file, free all pre-allocated blocks
 			return FAILURE;
 		}
+
+		//write bitmap
 		savediskcontent(freeblockbitmap, BITMAP_FOR_FREE_BLOCK_OFFSET*BLOCK_SIZE, BITMAP_FOR_FREE_BLOCK_SIZE*BLOCK_SIZE);
 
+		//change an empty file into a file with size
 		string target=cmd[1];
 		if (target[target.size()-1]!='/') target.push_back('/');
 		target+=cmd[2];
@@ -795,6 +823,8 @@ public:
 		inode.size=fileSize;
 		for (int i=0; i!=blocks.size(); ++i)
 			inode.block_numbers[i]=blocks[i];
+
+		//write inode table
 		savediskcontent((byte*)inode_table, INODE_TABLE_OFFSET*BLOCK_SIZE, INODE_TABLE_SIZE_REAL);
 		
 		srcFile.seekg(0, srcFile.beg);
@@ -802,12 +832,13 @@ public:
 		for (int i=0; i!=blocks.size(); ++i){
 			memset(tb, 0, BLOCK_SIZE*sizeof(byte));
 			srcFile.read((char*)tb, (fileSize-i)<BLOCK_SIZE?(fileSize-i):BLOCK_SIZE);
-			WRITE_BLOCK_BY_BLOCK_NUMBER(inode.block_numbers[i], tb);
+			WRITE_BLOCK_BY_BLOCK_NUMBER(inode.block_numbers[i], tb); //write file block by block
 		}
 		srcFile.close();
 		return 0;
 	}
 
+	//command createDirectory or mkdir
 	static int createDirecotory(vector<string> & cmd, int cwdInodeNum){
 		int blockNum=findAndMarkNextAvailableBlock(FILE_BLOCK_OFFSET);
 		if (blockNum==FAILURE){
@@ -815,7 +846,7 @@ public:
 			return FAILURE;
 		}
 		if (createEmptyFile(cmd, cwdInodeNum)==FAILURE){
-			unMarkBlockBitmap(blockNum);
+			unMarkBlockBitmap(blockNum); //same process as insertFile
 			return FAILURE;
 		}
 		string target=cmd[1];
@@ -824,12 +855,13 @@ public:
 		target+=cmd[2];
 		int wdInodeNum=PATH_TO_INODE_NUMBER(target.c_str(), cwdInodeNum);
 		inode_t &inode=INODE_NUMBER_TO_INODE(wdInodeNum,inode_table);
+		//change empty file into a dir
 		inode.type=FS_DIRECTORY;
 		inode.size=BLOCK_SIZE;
 		inode.block_numbers[0]=blockNum;
 		savediskcontent((byte*)inode_table, INODE_TABLE_OFFSET*BLOCK_SIZE, INODE_TABLE_SIZE_REAL);
 
-		//generate an empty dir
+		//generate dir content, . and ..
 		byte tb[BLOCK_SIZE]={0};
 		tb[0]='.';
 		tb[BLOCK_DIRECTORY_ENTRY_INODENUM_OFFSET]=wdInodeNum;
@@ -840,6 +872,7 @@ public:
 		return 0;
 	}
 
+	//command fsck
 	static int fsck_() {
 		byte bitmap[BITMAP_FOR_FREE_BLOCK_SIZE*BLOCK_SIZE]={0};
 		for (int i=0; i!=INODE_NUM; ++i) {
@@ -869,7 +902,7 @@ public:
 int _tmain(int argc, char* argv[]){
 	int cwdInodeNum=0;
 	load_disk_structure();
-	if (argc==1||(argc>=2&&strcmp(argv[1], "shell"))==0){
+	if (argc==1||(argc>=2&&strcmp(argv[1], "shell"))==0){ //if no command or shell parameter, enter interactive shell
 		while (true){
 			cout<<"simple_sh 0.1  / > ";//TODO display CWD
 			vector<string> command;
@@ -886,7 +919,7 @@ int _tmain(int argc, char* argv[]){
 			cout<<"\n>>>> Exited with return code "<<(Commands::execute(command, cwdInodeNum))<<" <<<<"<<endl;
 		}
 	}
-	else{
+	else{ //otherwise, execute single command and exit
 		vector<string> command;
 		for (int i=1; i<argc; ++i)
 			command.push_back(string(argv[i]));
